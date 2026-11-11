@@ -10,7 +10,20 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
-    "lib": ["DOM", "ES2020"]
+    "lib": [
+      "DOM",
+      "ES2020"
+    ],
+    "allowImportingTsExtensions": true,
+    "types": [
+      "node",
+      "vite/client"
+    ]
   },
-  "include": ["src", "remotion.config.ts"]
+  "include": [
+    "src",
+    "page",
+    "server",
+    "remotion.config.ts"
+  ]
 }

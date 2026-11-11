@@ -181,7 +181,72 @@ export const leaderFits = (dot: Point, card: Rect, o: LayoutOptions): boolean =>
   return true;
 };
 
-type Candidate = { index: number; rect: Rect; cost: number; leaders: Leader[] };
+// ---------------------------------------------------------------------
+// Swept areas. During the zoom each part of a leader line slides smoothly
+// from where it is on the first frame to where it is on the last frame.
+// Everything it touches on the way lies inside the outline (convex hull)
+// of its first and last positions, so checking that outline once is a
+// safe stand-in for checking every frame.
+// ---------------------------------------------------------------------
+
+const cross3 = (o: Point, a: Point, b: Point) =>
+  (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+/** Convex outline around a few points, in order around the edge. */
+const hull = (points: Point[]): Point[] => {
+  const pts = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (pts.length < 3) return pts;
+  const lower: Point[] = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross3(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper: Point[] = [];
+  for (const p of [...pts].reverse()) {
+    while (upper.length >= 2 && cross3(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+};
+
+const insideConvex = (p: Point, poly: Point[]) => {
+  let sign = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const c = cross3(poly[i], poly[(i + 1) % poly.length], p);
+    if (c === 0) continue;
+    if (sign === 0) sign = Math.sign(c);
+    else if (Math.sign(c) !== sign) return false;
+  }
+  return true;
+};
+
+/** Does this convex outline touch the rectangle? */
+const outlineHitsRect = (poly: Point[], r: Rect): boolean => {
+  if (poly.length === 1) return segmentHitsRect(poly[0], poly[0], r);
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    if (segmentHitsRect(a, b, r)) return true;
+  }
+  if (poly.length < 3) return false;
+  // The rectangle could sit completely inside the outline.
+  return insideConvex({ x: r.x + r.w / 2, y: r.y + r.h / 2 }, poly);
+};
+
+/** The areas swept by the two parts of a leader line over the zoom. */
+const sweptOutlines = (first: Leader, last: Leader): Point[][] => [
+  hull([first.start, first.elbow, last.start, last.elbow]),
+  hull([first.elbow, first.end, last.elbow, last.end]),
+];
+
+type Candidate = {
+  id: number;
+  index: number;
+  rect: Rect;
+  cost: number;
+  leaders: Leader[];
+  swept: Point[][];
+};
 
 const fitsOnScreen = (r: Rect, o: LayoutOptions) =>
   r.x >= o.margin - 1e-6 &&
@@ -197,6 +262,7 @@ const candidatesFor = (
   o: LayoutOptions,
   /** 0 = spots near the dot; otherwise a grid over the whole screen with this spacing. */
   gridStep: number,
+  nextId: () => number,
 ): Candidate[] => {
   const cardKeepOuts = dots.map((d) => dotSweep(d, o, o.dotClearance));
   const mid = toScreen(dots[index], (1 + o.zoomEnd) / 2, o.zoomCenter);
@@ -225,6 +291,9 @@ const candidatesFor = (
   }
 
   const zooms = zoomSamples(o, 17);
+  const otherDots = dots
+    .map((d, j) => ({ j, at: zooms.map((z) => toScreen(d, z, o.zoomCenter)) }))
+    .filter((d) => d.j !== index);
   const out: Candidate[] = [];
   for (const rect of rects) {
     if (!fitsOnScreen(rect, o)) continue;
@@ -233,30 +302,35 @@ const candidatesFor = (
     const leaders = zooms.map((z) => leaderPath(toScreen(dots[index], z, o.zoomCenter), rect));
     // Keep the line clear of every other dot at each sampled moment. The extra
     // 5 pixels covers how far things move between two samples.
-    const hitsDot = dots.some(
-      (d, j) =>
-        j !== index &&
-        zooms.some(
-          (z, k) => leaderDistance(leaders[k], toScreen(d, z, o.zoomCenter)) < o.lineDotClearance + 5,
-        ),
+    const hitsDot = otherDots.some((d) =>
+      leaders.some((l, k) => leaderDistance(l, d.at[k]) < o.lineDotClearance + 5),
     );
     if (hitsDot) continue;
     const l = leaderPath(mid, rect);
     const cost = angledLength(l) + levelLength(l);
-    out.push({ index, rect, cost, leaders });
+    const swept = sweptOutlines(leaders[0], leaders[leaders.length - 1]);
+    out.push({ id: nextId(), index, rect, cost, leaders, swept });
   }
   return out.sort((a, b) => a.cost - b.cost);
 };
 
-/** Can these two cards (with their lines) be used together? */
-const compatible = (a: Candidate, b: Candidate, o: LayoutOptions): boolean => {
-  if (rectsOverlap(a.rect, b.rect, o.cardGap)) return false;
-  // Grow each card a little: the lines move slightly between samples.
-  const aGrown = grow(a.rect, 6);
-  const bGrown = grow(b.rect, 6);
-  if (a.leaders.some((l) => leaderHitsRect(l, bGrown))) return false;
-  if (b.leaders.some((l) => leaderHitsRect(l, aGrown))) return false;
-  return true;
+/** Remembers which pairs of spots work together, so each pair is checked once. */
+const makeCompatible = (o: LayoutOptions) => {
+  const memo = new Map<number, boolean>();
+  return (a: Candidate, b: Candidate): boolean => {
+    const key = a.id < b.id ? a.id * 2 ** 21 + b.id : b.id * 2 ** 21 + a.id;
+    const known = memo.get(key);
+    if (known !== undefined) return known;
+    let ok = !rectsOverlap(a.rect, b.rect, o.cardGap);
+    if (ok) {
+      // Neither line may touch the other card at any moment of the zoom.
+      ok =
+        !a.swept.some((s) => outlineHitsRect(s, b.rect)) &&
+        !b.swept.some((s) => outlineHitsRect(s, a.rect));
+    }
+    memo.set(key, ok);
+    return ok;
+  };
 };
 
 const crossingCost = (a: Candidate, b: Candidate): number => {
@@ -268,12 +342,15 @@ const crossingCost = (a: Candidate, b: Candidate): number => {
  * Try combinations of spots, one per card. After each pick, spots that no
  * longer work for the remaining cards are crossed off, so dead ends are
  * spotted straight away. With `firstFound` it stops at the first layout that
- * works; otherwise it keeps looking for the one with the lowest cost.
+ * works; otherwise it keeps looking for the one with the lowest cost, up to
+ * `maxSteps` tries. Step limits (not time limits) keep the answer identical
+ * every time, which matters because the video is drawn in several parts at once.
  */
 const search = (
   lists: Candidate[][],
-  o: LayoutOptions,
+  compatible: (a: Candidate, b: Candidate) => boolean,
   firstFound: boolean,
+  maxSteps: number,
 ): Candidate[] | null => {
   let best: Candidate[] | null = null;
   let bestCost = Infinity;
@@ -281,7 +358,7 @@ const search = (
   const chosen: Candidate[] = [];
 
   const walk = (remaining: Candidate[][], cost: number): boolean => {
-    if (++steps > 2_000_000) return true; // safety stop
+    if (++steps > maxSteps) return true; // safety stop
     if (remaining.length === 0) {
       best = [...chosen];
       bestCost = cost;
@@ -299,8 +376,17 @@ const search = (
     const restFloor = floor - remaining[pick][0].cost;
     for (const c of remaining[pick]) {
       if (cost + c.cost + restFloor >= bestCost) break;
-      const narrowed = rest.map((list) => list.filter((other) => compatible(c, other, o)));
-      if (narrowed.some((list) => list.length === 0)) continue;
+      const narrowed: Candidate[][] = [];
+      let dead = false;
+      for (const list of rest) {
+        const keep = list.filter((other) => compatible(c, other));
+        if (keep.length === 0) {
+          dead = true;
+          break;
+        }
+        narrowed.push(keep);
+      }
+      if (dead) continue;
       const added = c.cost + chosen.reduce((sum, other) => sum + crossingCost(c, other), 0);
       chosen.push(c);
       const stop = walk(narrowed, cost + added);
@@ -318,9 +404,64 @@ const search = (
 };
 
 /**
+ * Thrown when the cards cannot be placed. `callouts` holds the callout
+ * numbers (1 = first) to move or shorten.
+ */
+export class LayoutError extends Error {
+  kind: "no-room" | "crowded";
+  callouts: number[];
+  constructor(kind: "no-room" | "crowded", callouts: number[]) {
+    super(
+      kind === "no-room"
+        ? `There is no room for the card of callout ${callouts.join(" and ")}. ` +
+            "Its dot is too close to the edge of the photo or to another dot. " +
+            "Move that dot, or shorten its text."
+        : `The cards do not all fit. Try moving callout ${callouts.join(" or ")} ` +
+            "away from the other dots, or shortening its text.",
+    );
+    this.name = "LayoutError";
+    this.kind = kind;
+    this.callouts = callouts;
+  }
+}
+
+const tryLayout = (
+  dots: Point[],
+  sizes: Size[],
+  o: LayoutOptions,
+  quick: boolean,
+): { rects: Rect[] | null; noRoom: number[] } => {
+  let id = 0;
+  const nextId = () => id++;
+  const compatible = makeCompatible(o);
+
+  // First try: spots near each dot, and find the best combination.
+  const near = dots.map((_, i) =>
+    candidatesFor(i, dots, sizes[i], o, 0, nextId).slice(0, dots.length > 4 ? 45 : 60),
+  );
+  const nearResult = search(near, compatible, false, quick ? 5_000 : 40_000);
+  if (nearResult) return { rects: nearResult.map((c) => c.rect), noRoom: [] };
+
+  // Fallback: try spots on a grid across the whole screen, coarse then fine.
+  let noRoom: number[] = [];
+  // The fine grid is slow with many cards, so it is only used for up to 4.
+  const steps = quick ? [40] : dots.length <= 4 ? [40, 12] : [40, 24];
+  for (const step of steps) {
+    // Keep the 400 shortest-line spots per card so the search stays quick.
+    const all = dots.map((_, i) => candidatesFor(i, dots, sizes[i], o, step, nextId).slice(0, 400));
+    noRoom = all.flatMap((list, i) => (list.length === 0 ? [i + 1] : []));
+    if (noRoom.length) continue;
+    const gridResult = search(all, compatible, true, quick ? 3_000 : 20_000);
+    if (gridResult) return { rects: gridResult.map((c) => c.rect), noRoom: [] };
+  }
+  return { rects: null, noRoom };
+};
+
+/**
  * Pick a rectangle for every card.
  * @param dots  each dot's position in screen pixels at zoom 1
  * @param sizes each card's width and height in pixels
+ * @throws LayoutError naming the callout(s) to move when no layout works
  */
 export const layoutCards = (dots: Point[], sizes: Size[], o: LayoutOptions): Rect[] => {
   if (dots.length !== sizes.length) {
@@ -328,27 +469,18 @@ export const layoutCards = (dots: Point[], sizes: Size[], o: LayoutOptions): Rec
   }
   if (dots.length === 0) return [];
 
-  // First try: spots near each dot, and find the best combination.
-  const near = dots.map((_, i) => candidatesFor(i, dots, sizes[i], o, 0).slice(0, 60));
-  const nearResult = search(near, o, false);
-  if (nearResult) return nearResult.map((c) => c.rect);
+  const result = tryLayout(dots, sizes, o, false);
+  if (result.rects) return result.rects;
+  if (result.noRoom.length) throw new LayoutError("no-room", result.noRoom);
 
-  // Fallback: try spots on a grid across the whole screen, coarse then fine.
-  let noRoom: number[] = [];
-  for (const step of [40, 12]) {
-    const all = dots.map((_, i) => candidatesFor(i, dots, sizes[i], o, step));
-    noRoom = all.flatMap((list, i) => (list.length === 0 ? [i + 1] : []));
-    if (noRoom.length) break;
-    const gridResult = search(all, o, true);
-    if (gridResult) return gridResult.map((c) => c.rect);
+  // Find which callout is in the way: the first one whose removal lets the
+  // rest fit. Try the later callouts first, since those were added last.
+  for (let i = dots.length - 1; i >= 0 && dots.length > 1; i--) {
+    const otherDots = dots.filter((_, j) => j !== i);
+    const otherSizes = sizes.filter((_, j) => j !== i);
+    if (tryLayout(otherDots, otherSizes, o, true).rects) {
+      throw new LayoutError("crowded", [i + 1]);
+    }
   }
-
-  throw new Error(
-    noRoom.length
-      ? `There is no room for the card of callout ${noRoom.join(" and ")}. ` +
-          "Its dot is too close to the edge of the photo or to another dot. " +
-          "Move that dot, or shorten its text."
-      : "Could not place all the callout cards together. " +
-          "Some dots are too close to each other. Move them apart, or shorten the text.",
-  );
+  throw new LayoutError("crowded", [dots.length]);
 };

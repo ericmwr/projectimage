@@ -1,5 +1,7 @@
 {
   "photo": "20260922_103817.jpg",
+  "photoWidth": 4000,
+  "photoHeight": 3000,
   "callouts": [
     {
       "surface": "Ceiling",
