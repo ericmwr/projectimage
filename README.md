@@ -14,7 +14,14 @@ You need Node.js (version 18 or newer). Check with:
 node --version
 ```
 
-Then, in this folder, install the parts the tool needs (only once):
+Every time you open a new PowerShell window, first move into this project's
+folder. Every command below only works from inside it:
+
+```bash
+cd C:\Users\mowre\github\projectimage
+```
+
+Then install the parts the tool needs (only once):
 
 ```bash
 npm install
