@@ -1,0 +1,26 @@
+{
+  "name": "projectimage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Turns a project photo into a short video with finish callouts",
+  "scripts": {
+    "preview": "remotion studio",
+    "render": "remotion render ProjectVideo out/video.mp4 --codec=h264",
+    "test": "tsx --test src/layout.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.542",
+    "@remotion/google-fonts": "4.0.542",
+    "@remotion/layout-utils": "4.0.542",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.542"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
