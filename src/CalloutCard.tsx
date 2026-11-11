@@ -1,6 +1,6 @@
 import React from "react";
 import { measureText } from "@remotion/layout-utils";
-import { card, colors, fonts, textSizes } from "./brand";
+import { card, colors, fonts, textSizes, withOpacity } from "./brand";
 import type { Size } from "./layout";
 import { detailLine, type Callout } from "./types";
 
@@ -18,8 +18,7 @@ export const measureCard = (c: Callout): Size => {
     measureText({ text: c.product, fontSize: textSizes.product, ...fonts.product }).width,
     measureText({ text: detailLine(c), fontSize: textSizes.detail, ...fonts.detail }).width,
   ];
-  const w =
-    card.accentBarWidth + card.paddingX * 2 + Math.ceil(Math.max(...widths)) + 4;
+  const w = card.edgeWidth + card.paddingX * 2 + Math.ceil(Math.max(...widths)) + 4;
   const h =
     card.paddingY * 2 +
     LINE_HEIGHT.surface +
@@ -29,7 +28,12 @@ export const measureCard = (c: Callout): Size => {
   return { w, h: Math.ceil(h) };
 };
 
-const line: React.CSSProperties = { whiteSpace: "nowrap", margin: 0 };
+const line: React.CSSProperties = {
+  whiteSpace: "nowrap",
+  margin: 0,
+  textShadow: card.textShadow,
+};
+const softWhite = withOpacity(colors.pureWhite, card.textSoftness);
 
 export const CalloutCard: React.FC<{ callout: Callout; size: Size }> = ({
   callout,
@@ -39,55 +43,49 @@ export const CalloutCard: React.FC<{ callout: Callout; size: Size }> = ({
     style={{
       width: size.w,
       height: size.h,
-      backgroundColor: colors.midnightDream,
+      boxSizing: "border-box",
+      backgroundColor: withOpacity(colors.charcoal, card.backgroundOpacity),
+      borderLeft: `${card.edgeWidth}px solid ${colors.pureWhite}`,
       borderRadius: card.cornerRadius,
-      overflow: "hidden",
+      padding: `${card.paddingY}px ${card.paddingX}px`,
       display: "flex",
+      flexDirection: "column",
+      gap: card.lineGap,
     }}
   >
-    <div style={{ width: card.accentBarWidth, backgroundColor: colors.fieldGreen }} />
     <div
       style={{
-        padding: `${card.paddingY}px ${card.paddingX}px`,
-        display: "flex",
-        flexDirection: "column",
-        gap: card.lineGap,
+        ...line,
+        ...fonts.surface,
+        fontSize: textSizes.surface,
+        lineHeight: `${LINE_HEIGHT.surface}px`,
+        color: colors.pureWhite,
+        textTransform: "uppercase",
       }}
     >
-      <div
-        style={{
-          ...line,
-          ...fonts.surface,
-          fontSize: textSizes.surface,
-          lineHeight: `${LINE_HEIGHT.surface}px`,
-          color: colors.pureWhite,
-          textTransform: "uppercase",
-        }}
-      >
-        {callout.surface}
-      </div>
-      <div
-        style={{
-          ...line,
-          ...fonts.product,
-          fontSize: textSizes.product,
-          lineHeight: `${LINE_HEIGHT.product}px`,
-          color: colors.greySkies,
-        }}
-      >
-        {callout.product}
-      </div>
-      <div
-        style={{
-          ...line,
-          ...fonts.detail,
-          fontSize: textSizes.detail,
-          lineHeight: `${LINE_HEIGHT.detail}px`,
-          color: colors.greySkies,
-        }}
-      >
-        {detailLine(callout)}
-      </div>
+      {callout.surface}
+    </div>
+    <div
+      style={{
+        ...line,
+        ...fonts.product,
+        fontSize: textSizes.product,
+        lineHeight: `${LINE_HEIGHT.product}px`,
+        color: softWhite,
+      }}
+    >
+      {callout.product}
+    </div>
+    <div
+      style={{
+        ...line,
+        ...fonts.detail,
+        fontSize: textSizes.detail,
+        lineHeight: `${LINE_HEIGHT.detail}px`,
+        color: softWhite,
+      }}
+    >
+      {detailLine(callout)}
     </div>
   </div>
 );

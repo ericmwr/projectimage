@@ -65,6 +65,16 @@ So `"x": 0.75, "y": 0.575` means three quarters of the way across and a bit
 more than halfway down. Change the numbers, save, and watch the preview.
 The cards move themselves; you never position them by hand.
 
+If two dots are very close together, or a dot is hard against the edge of the
+photo, there may be no way to fit its card diagonally from the dot with a
+bent line. Then the preview or render stops with a message saying which
+callout to move. Moving that dot a little usually fixes it.
+
+### Lighter or darker cards
+
+In `src/brand.ts`, change `backgroundOpacity` (it starts at `0.55`).
+Higher (like `0.7`) makes darker cards, lower (like `0.4`) makes lighter ones.
+
 ### Line 3
 
 Line 3 shows `color · sheen`. If `sheen` is empty (`""`), only the color shows.
