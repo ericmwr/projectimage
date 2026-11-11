@@ -7,7 +7,7 @@
     "preview": "remotion studio",
     "render": "remotion render ProjectVideo out/video.mp4 --codec=h264",
     "page": "tsx server/server.mts",
-    "test": "tsx --test src/layout.test.ts server/jobs.test.ts",
+    "test": "tsx --test src/layout.test.ts server/jobs.test.ts server/local-only.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

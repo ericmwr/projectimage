@@ -21,6 +21,7 @@ import {
   uniqueFolderName,
   type SavedJob,
 } from "./jobs-lib.ts";
+import { localOnly } from "./local-only.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const JOBS_DIR = path.join(ROOT, "my-jobs");
@@ -132,6 +133,8 @@ const startRender = async (id: string) => {
 // ---------------------------------------------------------------- web server
 
 const app = express();
+// First, before every route: only answer this PC's own Callout Studio page.
+app.use(localOnly(PORT));
 const json = express.json({ limit: "1mb" });
 const jpeg = express.raw({ type: "image/jpeg", limit: "80mb" });
 
