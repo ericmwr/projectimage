@@ -1,0 +1,37 @@
+{
+  "photo": "20260922_103817.jpg",
+  "callouts": [
+    {
+      "surface": "Ceiling",
+      "product": "Emerald Modified Urethane",
+      "color": "Chantilly Lace",
+      "sheen": "Satin",
+      "x": 0.25,
+      "y": 0.18
+    },
+    {
+      "surface": "Baseboard",
+      "product": "Emerald Modified Urethane",
+      "color": "Chantilly Lace",
+      "sheen": "Satin",
+      "x": 0.75,
+      "y": 0.575
+    },
+    {
+      "surface": "Walls",
+      "product": "Emerald Interior Wall Finish",
+      "color": "Accessible Beige",
+      "sheen": "Matte",
+      "x": 0.8,
+      "y": 0.47
+    },
+    {
+      "surface": "Railings",
+      "product": "Custom Stain",
+      "color": "Custom Clear",
+      "sheen": "",
+      "x": 0.72,
+      "y": 0.085
+    }
+  ]
+}
