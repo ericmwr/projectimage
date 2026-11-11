@@ -32,13 +32,18 @@ export const fonts = {
   detail: { fontFamily: sourceSans.fontFamily, fontWeight: "400" },
 } as const;
 
+let fontsLoaded = false;
 /** Resolves once every brand font has finished loading. */
 export const fontsReady = (): Promise<unknown> =>
   Promise.all([
     bebas.waitUntilDone(),
     oswald.waitUntilDone(),
     sourceSans.waitUntilDone(),
-  ]);
+  ]).then(() => {
+    fontsLoaded = true;
+  });
+/** True once fontsReady() has finished. */
+export const fontsAreLoaded = () => fontsLoaded;
 
 // Text sizes in pixels for a 1440-pixel-tall video.
 // Rules: line 1 at least 2.6% of video height (37.4px),

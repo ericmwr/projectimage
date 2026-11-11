@@ -1,0 +1,10 @@
+# Surface pick list for Callout Studio.
+# One surface per line. Add, remove or reorder lines, then save this file.
+# Lines starting with # are notes and are ignored.
+Walls
+Ceiling
+Trim
+Baseboard
+Doors
+Cabinets
+Railings

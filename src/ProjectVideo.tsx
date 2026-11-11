@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AbsoluteFill,
   Easing,
@@ -6,24 +6,17 @@ import {
   cancelRender,
   continueRender,
   delayRender,
+  getRemotionEnvironment,
   interpolate,
   staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { colors, dot, fontsReady, leader, withOpacity } from "./brand";
-import { CalloutCard, measureCard } from "./CalloutCard";
+import { colors, dot, fontsAreLoaded, fontsReady, leader, withOpacity } from "./brand";
+import { CalloutCard } from "./CalloutCard";
 import { ClosingCard } from "./ClosingCard";
-import {
-  angledLength,
-  layoutCards,
-  leaderPath,
-  toScreen,
-  type LayoutOptions,
-  type Point,
-  type Rect,
-  type Size,
-} from "./layout";
+import { angledLength, leaderPath, toScreen, type Point, type Rect } from "./layout";
+import { placeCards, type Placement } from "./placement";
 import {
   CARD_IN,
   CLOSING_FADE,
@@ -33,12 +26,10 @@ import {
   calloutStart,
   closingStart,
 } from "./timing";
-import type { Job } from "./types";
+import type { VideoProps } from "./types";
 
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 const easeOut = Easing.out(Easing.cubic);
-
-type Placed = { sizes: Size[]; rects: Rect[] };
 
 /** The part of the bent line drawn so far (progress 0 to 1), as SVG points. */
 const partialLeader = (start: Point, card: Rect, progress: number): string => {
@@ -58,7 +49,7 @@ const partialLeader = (start: Point, card: Rect, progress: number): string => {
   return pts.map((p) => `${p.x},${p.y}`).join(" ");
 };
 
-export const ProjectVideo: React.FC<Job> = ({ photo, callouts }) => {
+export const ProjectVideo: React.FC<VideoProps> = ({ photo, photoUrl, callouts }) => {
   const frame = useCurrentFrame();
   const { width, height, durationInFrames } = useVideoConfig();
   const center: Point = { x: width / 2, y: height / 2 };
@@ -66,32 +57,38 @@ export const ProjectVideo: React.FC<Job> = ({ photo, callouts }) => {
   // Dot positions in screen pixels before any zoom.
   const dots: Point[] = callouts.map((c) => ({ x: c.x * width, y: c.y * height }));
 
-  // Card sizes depend on the fonts, so wait for them, then place the cards.
-  const [placed, setPlaced] = useState<Placed | null>(null);
-  const [handle] = useState(() => delayRender("Loading fonts and placing cards"));
+  // Card sizes depend on the fonts, so wait for them before placing the cards.
+  const [fontsLoaded, setFontsLoaded] = useState(fontsAreLoaded);
+  const [handle] = useState(() => (fontsAreLoaded() ? null : delayRender("Loading fonts")));
   useEffect(() => {
+    if (handle === null) return;
     fontsReady()
       .then(() => {
-        const sizes = callouts.map(measureCard);
-        const dotSize = dot.radius + dot.ringWidth;
-        const options: LayoutOptions = {
-          frame: { w: width, h: height },
-          margin: 48,
-          cardGap: 24,
-          dotClearance: dotSize + 20,
-          lineDotClearance: dotSize + 4,
-          minAngled: leader.minAngledLength,
-          minLevel: leader.minLevelLength,
-          zoomCenter: center,
-          zoomEnd: ZOOM_END,
-        };
-        setPlaced({ sizes, rects: layoutCards(dots, sizes, options) });
+        setFontsLoaded(true);
         continueRender(handle);
       })
       .catch((err) => cancelRender(err));
-    // Layout only depends on the job data and video size.
+  }, [handle]);
+
+  const calloutsKey = JSON.stringify(callouts);
+  const placement = useMemo((): Placement | Error | null => {
+    if (!fontsLoaded) return null;
+    try {
+      return placeCards(callouts, width, height);
+    } catch (e) {
+      return e instanceof Error ? e : new Error(String(e));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(callouts), width, height, handle]);
+  }, [fontsLoaded, calloutsKey, width, height]);
+
+  // If the cards cannot fit, stop a real render with the reason. In the page's
+  // preview, keep showing the photo and dots; the page explains the problem.
+  useEffect(() => {
+    if (placement instanceof Error && !getRemotionEnvironment().isPlayer) {
+      cancelRender(placement);
+    }
+  }, [placement]);
+  const placed = placement instanceof Error ? null : placement;
 
   // Slow zoom: 1.00 at the first frame, 1.04 at the last.
   const zoom = interpolate(frame, [0, durationInFrames - 1], [1, ZOOM_END], clamp);
@@ -105,7 +102,7 @@ export const ProjectVideo: React.FC<Job> = ({ photo, callouts }) => {
   return (
     <AbsoluteFill style={{ backgroundColor: colors.midnightDream }}>
       <Img
-        src={staticFile(photo)}
+        src={photoUrl ?? staticFile(photo)}
         style={{
           position: "absolute",
           width,
@@ -116,81 +113,80 @@ export const ProjectVideo: React.FC<Job> = ({ photo, callouts }) => {
         }}
       />
 
-      {placed && (
-        <>
-          <svg width={width} height={height} style={{ position: "absolute", inset: 0 }}>
-            {callouts.map((_, i) => {
-              const local = frame - calloutStart(i);
-              // Where the dot is right now; the bend is worked out from here.
-              const d = toScreen(dots[i], zoom, center);
-              const lineP = interpolate(local, [...LINE_IN], [0, 1], { ...clamp, easing: easeOut });
-              const dotP = interpolate(local, [...DOT_IN], [0, 1], {
-                ...clamp,
-                easing: Easing.out(Easing.back(2)),
-              });
-              const points = lineP > 0 ? partialLeader(d, placed.rects[i], lineP) : "";
-              return (
-                <g key={i}>
-                  {lineP > 0 && (
-                    <>
-                      <polyline
-                        points={points}
-                        fill="none"
-                        stroke={withOpacity(colors.charcoal, leader.edgeOpacity)}
-                        strokeWidth={leader.width + leader.edgeWidth * 2}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <polyline
-                        points={points}
-                        fill="none"
-                        stroke={colors.pureWhite}
-                        strokeWidth={leader.width}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </>
-                  )}
-                  {dotP > 0 && (
-                    <circle
-                      cx={d.x}
-                      cy={d.y}
-                      r={dot.radius * dotP}
-                      fill={colors.charcoal}
-                      stroke={colors.pureWhite}
-                      strokeWidth={dot.ringWidth * dotP}
-                    />
-                  )}
-                </g>
-              );
-            })}
-          </svg>
+      <svg width={width} height={height} style={{ position: "absolute", inset: 0 }}>
+        {callouts.map((_, i) => {
+          const local = frame - calloutStart(i);
+          // Where the dot is right now; the bend is worked out from here.
+          const d = toScreen(dots[i], zoom, center);
+          const lineP = placed
+            ? interpolate(local, [...LINE_IN], [0, 1], { ...clamp, easing: easeOut })
+            : 0;
+          const dotP = interpolate(local, [...DOT_IN], [0, 1], {
+            ...clamp,
+            easing: Easing.out(Easing.back(2)),
+          });
+          const points = placed && lineP > 0 ? partialLeader(d, placed.rects[i], lineP) : "";
+          return (
+            <g key={i}>
+              {points && (
+                <>
+                  <polyline
+                    points={points}
+                    fill="none"
+                    stroke={withOpacity(colors.charcoal, leader.edgeOpacity)}
+                    strokeWidth={leader.width + leader.edgeWidth * 2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <polyline
+                    points={points}
+                    fill="none"
+                    stroke={colors.pureWhite}
+                    strokeWidth={leader.width}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </>
+              )}
+              {dotP > 0 && (
+                <circle
+                  cx={d.x}
+                  cy={d.y}
+                  r={dot.radius * dotP}
+                  fill={colors.charcoal}
+                  stroke={colors.pureWhite}
+                  strokeWidth={dot.ringWidth * dotP}
+                />
+              )}
+            </g>
+          );
+        })}
+      </svg>
 
-          {callouts.map((c, i) => {
-            const local = frame - calloutStart(i);
-            const p = interpolate(local, [...CARD_IN], [0, 1], { ...clamp, easing: easeOut });
-            if (p <= 0) return null;
-            const r = placed.rects[i];
-            // Slide in sideways, toward the end of the line.
-            const toRight = r.x + r.w / 2 >= dots[i].x;
-            const shift = (1 - p) * 14 * (toRight ? 1 : -1);
-            return (
-              <div
-                key={i}
-                style={{
-                  position: "absolute",
-                  left: r.x,
-                  top: r.y,
-                  opacity: p,
-                  transform: `translateX(${shift}px)`,
-                }}
-              >
-                <CalloutCard callout={c} size={placed.sizes[i]} />
-              </div>
-            );
-          })}
-        </>
-      )}
+      {placed &&
+        callouts.map((c, i) => {
+          const local = frame - calloutStart(i);
+          const p = interpolate(local, [...CARD_IN], [0, 1], { ...clamp, easing: easeOut });
+          if (p <= 0) return null;
+          const r = placed.rects[i];
+          // Slide in sideways, toward the end of the line.
+          const toRight = r.x + r.w / 2 >= dots[i].x;
+          const shift = (1 - p) * 14 * (toRight ? 1 : -1);
+          return (
+            <div
+              key={i}
+              style={{
+                position: "absolute",
+                left: r.x,
+                top: r.y,
+                opacity: p,
+                transform: `translateX(${shift}px)`,
+              }}
+            >
+              <CalloutCard callout={c} size={placed.sizes[i]} />
+            </div>
+          );
+        })}
 
       {closingOpacity > 0 && (
         <AbsoluteFill style={{ opacity: closingOpacity }}>

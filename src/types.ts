@@ -1,4 +1,4 @@
-// The shape of a job data file (see the jobs folder).
+// The shape of a job data file (see the jobs folder and your my-jobs folder).
 export type Callout = {
   surface: string;
   product: string;
@@ -12,9 +12,18 @@ export type Callout = {
 };
 
 export type Job = {
-  /** Photo filename inside the public folder. */
+  /** Photo filename inside the public folder (stage 1 sample job). */
   photo: string;
+  /** Photo size in pixels, upright. Sets the video's shape. Missing = 4:3 wide. */
+  photoWidth?: number;
+  photoHeight?: number;
   callouts: Callout[];
+};
+
+/** What the video component receives. */
+export type VideoProps = Job & {
+  /** Full web address of the photo; used instead of `photo` when given. */
+  photoUrl?: string;
 };
 
 export const detailLine = (c: Callout) =>
